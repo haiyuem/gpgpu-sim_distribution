@@ -33,6 +33,7 @@
 #include <semaphore.h>
 #include <time.h>
 #include "abstract_hardware_model.h"
+#include "option_parser.h"
 
 // extern time_t g_simulation_starttime;
 class gpgpu_context;
@@ -51,6 +52,8 @@ class GPGPUsim_ctx {
     the_cude_device = NULL;
     the_context = NULL;
     gpgpu_ctx = ctx;
+    g_option_parser = NULL;
+    g_config_file_path = NULL;
   }
 
   // struct gpgpu_ptx_sim_arg *grid_params;
@@ -64,6 +67,8 @@ class GPGPUsim_ctx {
   class gpgpu_sim_config *g_the_gpu_config;
   class gpgpu_sim *g_the_gpu;
   class stream_manager *g_stream_manager;
+  option_parser_t g_option_parser;  // kept for config reload mid-run
+  char *g_config_file_path;         // config file path (from -config)
 
   struct _cuda_device_id *the_cude_device;
   struct CUctx_st *the_context;

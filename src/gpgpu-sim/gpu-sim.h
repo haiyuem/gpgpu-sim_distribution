@@ -37,6 +37,8 @@
 #include <fstream>
 #include <iostream>
 #include <list>
+#include <string>
+#include <vector>
 #include "../abstract_hardware_model.h"
 #include "../option_parser.h"
 #include "../trace.h"
@@ -488,6 +490,14 @@ class gpgpu_sim_config : public power_config,
   // GPGPU-Sim timing model options
   unsigned long long gpu_max_cycle_opt;
   unsigned long long gpu_max_insn_opt;
+  unsigned long long gpu_cycles_at_insn;  // report delta cycle count every this
+                                          // many instructions (0=disabled)
+  // Reload once at this cycle or instruction (0 = disabled). Only overrides
+  // from -reload_config are applied; all other options keep their current value.
+  unsigned long long config_reload_at_cycle;
+  unsigned long long config_reload_at_insn;
+  // Overrides at reload: "param1/value1|param2/value2" (| separates entries, / param from value)
+  char *reload_config;
   unsigned gpu_max_cta_opt;
   unsigned gpu_max_completed_cta_opt;
   char *gpgpu_runtime_stat;
@@ -726,6 +736,10 @@ class gpgpu_sim : public gpgpu_t {
   class power_stat_t *m_power_stats;
   class gpgpu_sim_wrapper *m_gpgpusim_wrapper;
   unsigned long long last_gpu_sim_insn;
+  unsigned long long last_gpu_cycles_at_insn_report;  // cycle count at last report
+  unsigned long long last_gpu_insn_at_insn_report;    // instruction count at last report
+  bool config_reload_applied;         // true after config file was re-read
+  void reload_config_file();
 
   unsigned long long last_liveness_message_time;
 

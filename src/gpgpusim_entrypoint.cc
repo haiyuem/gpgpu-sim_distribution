@@ -27,6 +27,7 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include "gpgpusim_entrypoint.h"
+#include <cstring>
 #include <stdio.h>
 
 #include "../libcuda/gpgpu_context.h"
@@ -340,6 +341,13 @@ gpgpu_sim *gpgpu_context::gpgpu_ptx_sim_init_perf() {
   the_gpgpusim->g_the_gpu_config = new gpgpu_sim_config(this);
   the_gpgpusim->g_the_gpu_config->reg_options(
       opp);  // register GPU microrachitecture options
+
+  the_gpgpusim->g_option_parser = opp;
+  for (int i = 0; i < sg_argc - 1; i++)
+    if (strcmp(sg_argv[i], "-config") == 0) {
+      the_gpgpusim->g_config_file_path = strdup(sg_argv[i + 1]);
+      break;
+    }
 
   option_parser_cmdline(opp, sg_argc, sg_argv);  // parse configuration options
   fprintf(stdout, "GPGPU-Sim: Configuration options:\n\n");

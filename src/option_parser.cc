@@ -321,6 +321,14 @@ class OptionParser {
     }
   }
 
+  // Set one option by name; value is parsed as with fromString. Returns true if found.
+  bool SetOption(const string &name, const string &value) {
+    string key = (name.size() > 0 && name[0] == '-') ? name : string("-") + name;
+    OptionMap::iterator i = m_optionMap.find(key);
+    if (i == m_optionMap.end()) return false;
+    return i->second->fromString(value);
+  }
+
   void Print(FILE *fout) {
     OptionCollection::iterator i_option;
     for (i_option = m_optionReg.begin(); i_option != m_optionReg.end();
@@ -422,6 +430,12 @@ void option_parser_delimited_string(option_parser_t opp,
 void option_parser_print(option_parser_t opp, FILE *fout) {
   OptionParser *p_opr = reinterpret_cast<OptionParser *>(opp);
   p_opr->Print(fout);
+}
+
+int option_parser_set_option(option_parser_t opp, const char *name,
+                             const char *value) {
+  OptionParser *p_opr = reinterpret_cast<OptionParser *>(opp);
+  return p_opr->SetOption(name, value ? value : "") ? 1 : 0;
 }
 
 // #define UNIT_TEST

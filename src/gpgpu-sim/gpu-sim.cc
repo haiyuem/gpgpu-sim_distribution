@@ -36,6 +36,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "../option_parser.h"
 #include "zlib.h"
 
 #include "dram.h"
@@ -676,6 +677,19 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
                          "terminates gpu simulation early (0 = no limit)", "0");
   option_parser_register(opp, "-gpgpu_max_insn", OPT_INT64, &gpu_max_insn_opt,
                          "terminates gpu simulation early (0 = no limit)", "0");
+  option_parser_register(
+      opp, "-gpgpu_cycles_at_insn", OPT_INT64, &gpu_cycles_at_insn,
+      "report delta cycle count every N instructions (0 = disabled)", "0");
+  option_parser_register(opp, "-config_reload_at_cycle", OPT_INT64,
+                         &config_reload_at_cycle,
+                         "apply -reload_config overrides once at this cycle (0 = disabled)", "0");
+  option_parser_register(opp, "-config_reload_at_insn", OPT_INT64,
+                         &config_reload_at_insn,
+                         "apply -reload_config overrides once at this instruction (0 = disabled)", "0");
+  option_parser_register(
+      opp, "-reload_config", OPT_CSTR, &reload_config,
+      "overrides at reload: param1/value1|param2/value2 (| separates entries, / separates param from value so values may contain commas/colons)",
+      "");
   option_parser_register(opp, "-gpgpu_max_cta", OPT_INT32, &gpu_max_cta_opt,
                          "terminates gpu simulation early (0 = no limit)", "0");
   option_parser_register(opp, "-gpgpu_max_completed_cta", OPT_INT32,
@@ -1000,6 +1014,9 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   gpu_completed_cta = 0;
   m_total_cta_launched = 0;
   gpu_deadlock = false;
+  last_gpu_cycles_at_insn_report = 0;
+  last_gpu_insn_at_insn_report = 0;
+  config_reload_applied = false;
 
   gpu_stall_dramfull = 0;
   gpu_stall_icnt2sh = 0;
@@ -1198,6 +1215,9 @@ void gpgpu_sim::init() {
   partiton_replys_in_parallel = 0;
   partiton_reqs_in_parallel_util = 0;
   gpu_sim_cycle_parition_util = 0;
+  // last_gpu_cycles_at_insn_report / last_gpu_insn_at_insn_report not reset so
+  // reports are continuous across kernels
+  // config_reload_applied not reset so we only re-read once per run
 
 // McPAT initialization function. Called on first launch of GPU
 #ifdef GPGPUSIM_POWER_MODEL
@@ -2095,6 +2115,42 @@ void gpgpu_sim::cycle() {
     }
     gpu_sim_cycle++;
 
+    // Report delta cycle count every X instructions
+    if (m_config.gpu_cycles_at_insn) {
+      unsigned long long total_insn = gpu_tot_sim_insn + gpu_sim_insn;
+      unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
+      unsigned long long next_insn = last_gpu_insn_at_insn_report + m_config.gpu_cycles_at_insn;
+      while (total_insn >= next_insn) {
+        unsigned long long delta_cycles = total_cycles - last_gpu_cycles_at_insn_report;
+        printf("gpu_cycles_at_insn: at %llu instructions, delta_cycles = %llu, total_cycles = %llu\n",
+               (unsigned long long)next_insn, (unsigned long long)delta_cycles,
+               (unsigned long long)total_cycles);
+        fflush(stdout);
+        last_gpu_cycles_at_insn_report = total_cycles;
+        last_gpu_insn_at_insn_report = next_insn;
+        next_insn += m_config.gpu_cycles_at_insn;
+      }
+    }
+
+    // Re-read entire config file at cycle X or instruction X; all options take effect
+    if (!config_reload_applied &&
+        (m_config.config_reload_at_cycle != 0 || m_config.config_reload_at_insn != 0)) {
+      unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
+      unsigned long long total_insn = gpu_tot_sim_insn + gpu_sim_insn;
+      bool trigger =
+          (m_config.config_reload_at_cycle != 0 &&
+           total_cycles >= m_config.config_reload_at_cycle) ||
+          (m_config.config_reload_at_insn != 0 &&
+           total_insn >= m_config.config_reload_at_insn);
+      if (trigger) {
+        reload_config_file();
+        config_reload_applied = true;
+        printf("GPGPU-Sim: at cycle %llu, insn %llu: applying -reload_config overrides\n",
+               (unsigned long long)total_cycles, (unsigned long long)total_insn);
+        fflush(stdout);
+      }
+    }
+
     if (g_interactive_debugger_enabled) gpgpu_debug();
 
       // McPAT main cycle (interface with McPAT)
@@ -2297,6 +2353,35 @@ const shader_core_config *gpgpu_sim::getShaderCoreConfig() {
 
 const memory_config *gpgpu_sim::getMemoryConfig() { return m_memory_config; }
 
+void gpgpu_sim::reload_config_file() {
+  gpgpu_sim_config *cfg = gpgpu_ctx->the_gpgpusim->g_the_gpu_config;
+  option_parser_t opp = gpgpu_ctx->the_gpgpusim->g_option_parser;
+  if (!cfg->reload_config || !cfg->reload_config[0] || !opp) return;
+
+  // Format: param1/value1|param2/value2 (| = entry separator, / = param/value separator)
+  std::string s(cfg->reload_config);
+  size_t pos = 0;
+  while (pos < s.size()) {
+    size_t pipe = s.find('|', pos);
+    size_t end = (pipe != std::string::npos) ? pipe : s.size();
+    std::string entry = s.substr(pos, end - pos);
+    pos = (pipe != std::string::npos) ? pipe + 1 : s.size();
+    size_t slash = entry.find('/');
+    if (slash == std::string::npos) continue;
+    std::string param = entry.substr(0, slash);
+    std::string value_str = entry.substr(slash + 1);
+    if (option_parser_set_option(opp, param.c_str(), value_str.c_str())) {
+      printf("GPGPU-Sim: reload_config set %s = %s\n", param.c_str(),
+             value_str.c_str());
+    } else {
+      fprintf(stderr, "GPGPU-Sim: -reload_config unknown or unregistered option '%s'\n",
+              param.c_str());
+    }
+  }
+  fflush(stdout);
+  reinit_clock_domains();
+}
+
 simt_core_cluster *gpgpu_sim::getSIMTCluster() { return *m_cluster; }
 
 void sst_gpgpu_sim::SST_gpgpusim_numcores_equal_check(unsigned sst_numcores) {
@@ -2342,6 +2427,38 @@ void sst_gpgpu_sim::SST_cycle() {
     asm("int $03");
   }
   gpu_sim_cycle++;
+  if (m_config.gpu_cycles_at_insn) {
+    unsigned long long total_insn = gpu_tot_sim_insn + gpu_sim_insn;
+    unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
+    unsigned long long next_insn = last_gpu_insn_at_insn_report + m_config.gpu_cycles_at_insn;
+    while (total_insn >= next_insn) {
+      unsigned long long delta_cycles = total_cycles - last_gpu_cycles_at_insn_report;
+      printf("gpu_cycles_at_insn: at %llu instructions, delta_cycles = %llu, total_cycles = %llu\n",
+             (unsigned long long)next_insn, (unsigned long long)delta_cycles,
+             (unsigned long long)total_cycles);
+      fflush(stdout);
+      last_gpu_cycles_at_insn_report = total_cycles;
+      last_gpu_insn_at_insn_report = next_insn;
+      next_insn += m_config.gpu_cycles_at_insn;
+    }
+  }
+  if (!config_reload_applied &&
+      (m_config.config_reload_at_cycle != 0 || m_config.config_reload_at_insn != 0)) {
+    unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
+    unsigned long long total_insn = gpu_tot_sim_insn + gpu_sim_insn;
+    bool trigger =
+        (m_config.config_reload_at_cycle != 0 &&
+         total_cycles >= m_config.config_reload_at_cycle) ||
+        (m_config.config_reload_at_insn != 0 &&
+         total_insn >= m_config.config_reload_at_insn);
+    if (trigger) {
+      reload_config_file();
+      config_reload_applied = true;
+      printf("GPGPU-Sim: at cycle %llu, insn %llu: config file re-read\n",
+             (unsigned long long)total_cycles, (unsigned long long)total_insn);
+      fflush(stdout);
+    }
+  }
   if (g_interactive_debugger_enabled) gpgpu_debug();
 
     // McPAT main cycle (interface with McPAT)

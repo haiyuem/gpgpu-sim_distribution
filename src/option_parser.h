@@ -68,3 +68,8 @@ void option_parser_delimited_string(option_parser_t opp,
                                     const char *delimiters);
 // print options
 void option_parser_print(option_parser_t opp, FILE *fout);
+
+// set a single option by name (value as string); used for reload overrides.
+// name can be with or without leading '-'. Returns true if option was found.
+int option_parser_set_option(option_parser_t opp, const char *name,
+                             const char *value);
