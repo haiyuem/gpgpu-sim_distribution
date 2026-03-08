@@ -344,6 +344,10 @@ class memory_config {
   unsigned rop_latency;
   unsigned dram_latency;
 
+  // L2-to-ICNT rate limiter: add 1 credit every gpgpu_l2_to_icnt_response_period cycles.
+  // 0 disables the limiter (unlimited credits).
+  unsigned gpgpu_l2_to_icnt_response_period;
+
   // DRAM parameters
 
   unsigned tCCDL;  // column to column delay when bank groups are enabled

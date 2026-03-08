@@ -297,6 +297,9 @@ void memory_config::reg_options(class OptionParser *opp) {
                          "ROP queue latency (default 85)", "85");
   option_parser_register(opp, "-dram_latency", OPT_UINT32, &dram_latency,
                          "DRAM latency (default 30)", "30");
+  option_parser_register(
+      opp, "-gpgpu_l2_to_icnt_response_period", OPT_UINT32, &gpgpu_l2_to_icnt_response_period,
+      "L2-to-ICNT rate limiter period in cycles (0 = unlimited)", "1");
   option_parser_register(opp, "-dram_dual_bus_interface", OPT_UINT32,
                          &dual_bus_interface,
                          "dual_bus_interface (default = 0) ", "0");

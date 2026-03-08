@@ -427,6 +427,8 @@ memory_sub_partition::memory_sub_partition(unsigned sub_partition_id,
   m_stats = stats;
   m_gpu = gpu;
   m_memcpy_cycle_offset = 0;
+   m_L2_to_icnt_credit = 0;
+   m_L2_to_icnt_last_update = 0;
 
   assert(m_id < m_config->m_n_mem_sub_partition);
 
@@ -812,18 +814,37 @@ void memory_sub_partition::push(mem_fetch *m_req, unsigned long long cycle) {
 }
 
 mem_fetch *memory_sub_partition::pop() {
-  mem_fetch *mf = m_L2_icnt_queue->pop();
-  m_request_tracker.erase(mf);
-  if (mf && mf->isatomic()) mf->do_atomic();
-  if (mf && (mf->get_access_type() == L2_WRBK_ACC ||
-             mf->get_access_type() == L1_WRBK_ACC)) {
+  update_L2_to_icnt_credit();
+
+  mem_fetch *mf = m_L2_icnt_queue->top();
+  if (!mf) return NULL;
+
+  if (mf->get_access_type() == L2_WRBK_ACC ||
+      mf->get_access_type() == L1_WRBK_ACC) {
+    m_L2_icnt_queue->pop();
+    m_request_tracker.erase(mf);
     delete mf;
-    mf = NULL;
+    return NULL;
   }
+
+  if (m_config->gpgpu_l2_to_icnt_response_period != 0 && m_L2_to_icnt_credit == 0) {
+    return NULL;
+  }
+
+  m_L2_icnt_queue->pop();
+  m_request_tracker.erase(mf);
+  if (mf->isatomic()) mf->do_atomic();
+
+  if (m_config->gpgpu_l2_to_icnt_response_period != 0 && m_L2_to_icnt_credit > 0) {
+    m_L2_to_icnt_credit--;
+  }
+
   return mf;
 }
 
 mem_fetch *memory_sub_partition::top() {
+  update_L2_to_icnt_credit();
+
   mem_fetch *mf = m_L2_icnt_queue->top();
   if (mf && (mf->get_access_type() == L2_WRBK_ACC ||
              mf->get_access_type() == L1_WRBK_ACC)) {
@@ -832,7 +853,33 @@ mem_fetch *memory_sub_partition::top() {
     delete mf;
     mf = NULL;
   }
+
+  if (mf && m_config->gpgpu_l2_to_icnt_response_period != 0 &&
+      m_L2_to_icnt_credit == 0) {
+    return NULL;
+  }
+
   return mf;
+}
+
+void memory_sub_partition::update_L2_to_icnt_credit() {
+  unsigned period = m_config->gpgpu_l2_to_icnt_response_period;
+  if (period == 0) return;
+
+  unsigned long long now =
+      m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
+  if (now <= m_L2_to_icnt_last_update) return;
+
+  unsigned long long delta = now - m_L2_to_icnt_last_update;
+  unsigned long long new_tokens = delta / period;
+
+  if (new_tokens > 0) {
+    unsigned long long new_credit =
+        (unsigned long long)m_L2_to_icnt_credit + new_tokens;
+    if (new_credit > 1000000ULL) new_credit = 1000000ULL;
+    m_L2_to_icnt_credit = (unsigned)new_credit;
+    m_L2_to_icnt_last_update += new_tokens * period;
+  }
 }
 
 void memory_sub_partition::set_done(mem_fetch *mf) {

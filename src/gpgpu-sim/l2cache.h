@@ -247,6 +247,12 @@ class memory_sub_partition {
   // is accessed (in both cudamemcpyies and otherwise) this value is added to
   // the gpgpu-sim cycle counters.
   unsigned m_memcpy_cycle_offset;
+
+  // L2-to-ICNT rate limiter state (token bucket in cycles).
+  unsigned m_L2_to_icnt_credit;
+  unsigned long long m_L2_to_icnt_last_update;
+
+  void update_L2_to_icnt_credit();
 };
 
 class L2interface : public mem_fetch_interface {
