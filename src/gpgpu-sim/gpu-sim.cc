@@ -1474,6 +1474,20 @@ void gpgpu_sim::gpu_print_stat(unsigned long long streamID) {
 
   printf("kernel_stream_id = %llu\n", streamID);
 
+  // Report final (insn, total_cycles) when gpu_cycles_at_insn is enabled, so
+  // the last line in the log reflects kernel end rather than the last 10M-insn
+  // milestone (which can be ~1/3 of total if the kernel ends before 630M etc.).
+  if (m_config.gpu_cycles_at_insn) {
+    unsigned long long total_insn = gpu_tot_sim_insn + gpu_sim_insn;
+    unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
+    unsigned long long delta_cycles = total_cycles - last_gpu_cycles_at_insn_report;
+    printf("gpu_cycles_at_insn: at kernel end: %llu instructions, delta_cycles = "
+           "%llu, total_cycles = %llu\n",
+           (unsigned long long)total_insn, (unsigned long long)delta_cycles,
+           (unsigned long long)total_cycles);
+    fflush(stdout);
+  }
+
   printf("gpu_sim_cycle = %lld\n", gpu_sim_cycle);
   printf("gpu_sim_insn = %lld\n", gpu_sim_insn);
   printf("gpu_ipc = %12.4f\n", (float)gpu_sim_insn / gpu_sim_cycle);
@@ -2378,7 +2392,12 @@ void gpgpu_sim::reload_config_file() {
               param.c_str());
     }
   }
+  printf("GPGPU-Sim: options after reload_config:\n");
+  option_parser_print(opp, stdout);
   fflush(stdout);
+  // Re-parse gpgpu_clock_domains into dram_freq, *_period, etc. (cfg is
+  // non-const; m_config in gpgpu_sim is const ref so we can't call it there).
+  cfg->init_clock_domains();
   reinit_clock_domains();
 }
 
