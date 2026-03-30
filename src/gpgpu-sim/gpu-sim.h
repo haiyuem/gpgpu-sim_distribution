@@ -344,6 +344,10 @@ class memory_config {
   unsigned rop_latency;
   unsigned dram_latency;
 
+  // L2-to-ICNT rate limiter: add 1 credit every gpgpu_l2_to_icnt_response_period cycles.
+  // 0 disables the limiter (unlimited credits).
+  unsigned gpgpu_l2_to_icnt_response_period;
+
   // DRAM parameters
 
   unsigned tCCDL;  // column to column delay when bank groups are enabled
@@ -492,6 +496,8 @@ class gpgpu_sim_config : public power_config,
   unsigned long long gpu_max_insn_opt;
   unsigned long long gpu_cycles_at_insn;  // report delta cycle count every this
                                           // many instructions (0=disabled)
+  unsigned long long gpu_insn_at_cycle;   // report insn delta / insn-per-cycle
+                                          // every this many cycles (0=disabled)
   // Reload once at this cycle or instruction (0 = disabled). Only overrides
   // from -reload_config are applied; all other options keep their current value.
   unsigned long long config_reload_at_cycle;
@@ -738,8 +744,11 @@ class gpgpu_sim : public gpgpu_t {
   unsigned long long last_gpu_sim_insn;
   unsigned long long last_gpu_cycles_at_insn_report;  // cycle count at last report
   unsigned long long last_gpu_insn_at_insn_report;    // instruction count at last report
+  unsigned long long last_gpu_cycle_at_cycle_report;  // cycle milestone for insn/cycle windows
+  unsigned long long last_gpu_insn_at_cycle_report;   // insn total at that milestone
   bool config_reload_applied;         // true after config file was re-read
   void reload_config_file();
+  void step_gpu_insn_at_cycle_reports();
 
   unsigned long long last_liveness_message_time;
 

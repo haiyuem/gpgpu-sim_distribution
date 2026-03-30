@@ -207,6 +207,10 @@ class memory_sub_partition {
     m_memcpy_cycle_offset += 1;
   }
 
+  // Called after -reload_config applies (gpu-sim.cc); zeros credits and syncs
+  // last_update so the L2-ICNT limiter matches updated memory_config.
+  void reset_L2_to_icnt_rate_limiter_state();
+
  private:
   // data
   unsigned m_id;  //< the global sub partition ID
@@ -247,6 +251,12 @@ class memory_sub_partition {
   // is accessed (in both cudamemcpyies and otherwise) this value is added to
   // the gpgpu-sim cycle counters.
   unsigned m_memcpy_cycle_offset;
+
+  // L2-to-ICNT rate limiter state (token bucket in cycles).
+  unsigned m_L2_to_icnt_credit;
+  unsigned long long m_L2_to_icnt_last_update;
+
+  void update_L2_to_icnt_credit();
 };
 
 class L2interface : public mem_fetch_interface {

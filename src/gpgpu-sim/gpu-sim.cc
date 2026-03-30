@@ -258,6 +258,12 @@ void memory_config::reg_options(class OptionParser *opp) {
                          &m_L2_texure_only, "L2 cache used for texture only",
                          "1");
   option_parser_register(
+      opp, "-gpgpu_l2_valid_way_mask", OPT_UINT32, &m_L2_config.m_l2_valid_way_mask,
+      "L2 CAT capacity as enabled-way count for alloc/victim selection (hits "
+      "still use all ways): 0 = all ways; N enables low-order N ways (clamped "
+      "to assoc). Example for assoc=16: 16->0xFFFF, 14->0x3FFF.",
+      "0");
+  option_parser_register(
       opp, "-gpgpu_n_mem", OPT_UINT32, &m_n_mem,
       "number of memory modules (e.g. memory controllers) in gpu", "8");
   option_parser_register(opp, "-gpgpu_n_sub_partition_per_mchannel", OPT_UINT32,
@@ -297,6 +303,9 @@ void memory_config::reg_options(class OptionParser *opp) {
                          "ROP queue latency (default 85)", "85");
   option_parser_register(opp, "-dram_latency", OPT_UINT32, &dram_latency,
                          "DRAM latency (default 30)", "30");
+  option_parser_register(
+      opp, "-gpgpu_l2_to_icnt_response_period", OPT_UINT32, &gpgpu_l2_to_icnt_response_period,
+      "L2-to-ICNT rate limiter period in cycles (0 = unlimited)", "1");
   option_parser_register(opp, "-dram_dual_bus_interface", OPT_UINT32,
                          &dual_bus_interface,
                          "dual_bus_interface (default = 0) ", "0");
@@ -680,6 +689,10 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
   option_parser_register(
       opp, "-gpgpu_cycles_at_insn", OPT_INT64, &gpu_cycles_at_insn,
       "report delta cycle count every N instructions (0 = disabled)", "0");
+  option_parser_register(
+      opp, "-gpgpu_insn_at_cycle", OPT_INT64, &gpu_insn_at_cycle,
+      "report retired insn count and insn/cycle every N GPU cycles (0 = disabled)",
+      "0");
   option_parser_register(opp, "-config_reload_at_cycle", OPT_INT64,
                          &config_reload_at_cycle,
                          "apply -reload_config overrides once at this cycle (0 = disabled)", "0");
@@ -1016,6 +1029,8 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   gpu_deadlock = false;
   last_gpu_cycles_at_insn_report = 0;
   last_gpu_insn_at_insn_report = 0;
+  last_gpu_cycle_at_cycle_report = 0;
+  last_gpu_insn_at_cycle_report = 0;
   config_reload_applied = false;
 
   gpu_stall_dramfull = 0;
@@ -1215,7 +1230,8 @@ void gpgpu_sim::init() {
   partiton_replys_in_parallel = 0;
   partiton_reqs_in_parallel_util = 0;
   gpu_sim_cycle_parition_util = 0;
-  // last_gpu_cycles_at_insn_report / last_gpu_insn_at_insn_report not reset so
+  // last_gpu_cycles_at_insn_report / last_gpu_insn_at_insn_report /
+  // last_gpu_cycle_at_cycle_report / last_gpu_insn_at_cycle_report not reset so
   // reports are continuous across kernels
   // config_reload_applied not reset so we only re-read once per run
 
@@ -1473,6 +1489,33 @@ void gpgpu_sim::gpu_print_stat(unsigned long long streamID) {
   fprintf(statfout, "%s", kernel_info_str.c_str());
 
   printf("kernel_stream_id = %llu\n", streamID);
+
+  // Report final (insn, total_cycles) when gpu_cycles_at_insn is enabled, so
+  // the last line in the log reflects kernel end rather than the last 10M-insn
+  // milestone (which can be ~1/3 of total if the kernel ends before 630M etc.).
+  if (m_config.gpu_cycles_at_insn) {
+    unsigned long long total_insn = gpu_tot_sim_insn + gpu_sim_insn;
+    unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
+    unsigned long long delta_cycles = total_cycles - last_gpu_cycles_at_insn_report;
+    printf("gpu_cycles_at_insn: at kernel end: %llu instructions, delta_cycles = "
+           "%llu, total_cycles = %llu\n",
+           (unsigned long long)total_insn, (unsigned long long)delta_cycles,
+           (unsigned long long)total_cycles);
+    fflush(stdout);
+  }
+
+  if (m_config.gpu_insn_at_cycle) {
+    unsigned long long total_insn = gpu_tot_sim_insn + gpu_sim_insn;
+    unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
+    unsigned long long delta_insn = total_insn - last_gpu_insn_at_cycle_report;
+    unsigned long long delta_cycles = total_cycles - last_gpu_cycle_at_cycle_report;
+    double ipc = delta_cycles ? (double)delta_insn / (double)delta_cycles : 0.0;
+    printf("gpu_insn_at_cycle: at kernel end: delta_insn = %llu, delta_cycles = %llu, "
+           "insn_per_cycle = %.6f, total_cycles = %llu, total_insn = %llu\n",
+           (unsigned long long)delta_insn, (unsigned long long)delta_cycles, ipc,
+           (unsigned long long)total_cycles, (unsigned long long)total_insn);
+    fflush(stdout);
+  }
 
   printf("gpu_sim_cycle = %lld\n", gpu_sim_cycle);
   printf("gpu_sim_insn = %lld\n", gpu_sim_insn);
@@ -1975,6 +2018,28 @@ int gpgpu_sim::next_clock_domain(void) {
   return mask;
 }
 
+void gpgpu_sim::step_gpu_insn_at_cycle_reports() {
+  if (!m_config.gpu_insn_at_cycle) return;
+  unsigned long long total_insn = gpu_tot_sim_insn + gpu_sim_insn;
+  unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
+  unsigned long long next_cycle =
+      last_gpu_cycle_at_cycle_report + m_config.gpu_insn_at_cycle;
+  while (total_cycles >= next_cycle) {
+    unsigned long long delta_insn = total_insn - last_gpu_insn_at_cycle_report;
+    unsigned long long window_cycles = next_cycle - last_gpu_cycle_at_cycle_report;
+    double ipc =
+        window_cycles ? (double)delta_insn / (double)window_cycles : 0.0;
+    printf("gpu_insn_at_cycle: at %llu cycles, delta_insn = %llu, "
+           "insn_per_cycle = %.6f, total_insn = %llu\n",
+           (unsigned long long)next_cycle, (unsigned long long)delta_insn, ipc,
+           (unsigned long long)total_insn);
+    fflush(stdout);
+    last_gpu_cycle_at_cycle_report = next_cycle;
+    last_gpu_insn_at_cycle_report = total_insn;
+    next_cycle += m_config.gpu_insn_at_cycle;
+  }
+}
+
 void gpgpu_sim::issue_block2core() {
   unsigned last_issued = m_last_cluster_issue;
   for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
@@ -2131,6 +2196,8 @@ void gpgpu_sim::cycle() {
         next_insn += m_config.gpu_cycles_at_insn;
       }
     }
+
+    step_gpu_insn_at_cycle_reports();
 
     // Re-read entire config file at cycle X or instruction X; all options take effect
     if (!config_reload_applied &&
@@ -2378,8 +2445,16 @@ void gpgpu_sim::reload_config_file() {
               param.c_str());
     }
   }
+  printf("GPGPU-Sim: options after reload_config:\n");
+  option_parser_print(opp, stdout);
   fflush(stdout);
+  // Re-parse gpgpu_clock_domains into dram_freq, *_period, etc. (cfg is
+  // non-const; m_config in gpgpu_sim is const ref so we can't call it there).
+  cfg->init_clock_domains();
   reinit_clock_domains();
+
+  for (unsigned i = 0; i < m_memory_config->m_n_mem_sub_partition; i++)
+    m_memory_sub_partition[i]->reset_L2_to_icnt_rate_limiter_state();
 }
 
 simt_core_cluster *gpgpu_sim::getSIMTCluster() { return *m_cluster; }
@@ -2442,6 +2517,9 @@ void sst_gpgpu_sim::SST_cycle() {
       next_insn += m_config.gpu_cycles_at_insn;
     }
   }
+
+  step_gpu_insn_at_cycle_reports();
+
   if (!config_reload_applied &&
       (m_config.config_reload_at_cycle != 0 || m_config.config_reload_at_insn != 0)) {
     unsigned long long total_cycles = gpu_tot_sim_cycle + gpu_sim_cycle;
