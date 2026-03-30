@@ -346,6 +346,7 @@ void warp_inst_t::generate_mem_accesses() {
           // FIXME: deferred allocation of shared memory should not accumulate
           // across kernel launches assert( addr < m_config->gpgpu_shmem_size );
           unsigned bank = m_config->shmem_bank_func(addr);
+          // unsigned virtual_bank = bank / ??;
           new_addr_type word =
               line_size_based_tag_func(addr, m_config->WORD_SIZE);
           bank_accs[bank][word]++;

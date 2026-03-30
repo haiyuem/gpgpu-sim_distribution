@@ -1578,6 +1578,9 @@ class shader_core_config : public core_config {
              &sparam.num_units, &sparam.latency, &sparam.id_oc_spec_reg_width,
              &sparam.oc_ex_spec_reg_width, sparam.name);
 
+      // fprintf(stderr, "sparam.id_oc_spec_reg_width: %u\n", sparam.id_oc_spec_reg_width); // Lauren
+      // fprintf(stderr, "specialized_unit_string[i]: %s\n", specialized_unit_string[i]); // Lauren
+
       if (enabled) {
         m_specialized_unit.push_back(sparam);
         strncpy(m_specialized_unit.back().name, sparam.name,

@@ -144,6 +144,8 @@ void shader_core_ctx::create_front_pipeline() {
              m_pipeline_reg[ID_OC_INT].get_size());
     for (unsigned j = 0; j < m_config->m_specialized_unit.size(); j++) {
       if (m_config->m_specialized_unit[j].num_units > 0)
+        // fprintf(stderr, "added print statement about reg width\n"); // Lauren
+        // fprintf(stderr, "m_config->m_specialized_unit[j].id_oc_spec_reg_width: %u\n", m_config->m_specialized_unit[j].id_oc_spec_reg_width);
         assert(m_config->gpgpu_num_sched_per_core ==
                m_config->m_specialized_unit[j].id_oc_spec_reg_width);
     }

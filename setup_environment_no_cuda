@@ -90,6 +90,8 @@ fi
 
 # Simple configure, loop through all positional arguments
 # Default config
+echo "here's the cc version"
+echo $CC_VERSION
 export GPGPUSIM_CONFIG=gcc-$CC_VERSION/cuda-$CUDA_VERSION_NUMBER/release
 
 for opt in $@
