@@ -1790,8 +1790,8 @@ struct shader_core_stats_pod {
   unsigned gpu_stall_shd_mem_breakdown[N_MEM_STAGE_ACCESS_TYPE]
                                       [N_MEM_STAGE_STALL_TYPE];
   unsigned gpu_reg_bank_conflict_stalls;
-  unsigned *shader_cycle_distro;
-  unsigned *last_shader_cycle_distro;
+  unsigned long long *shader_cycle_distro;
+  unsigned long long *last_shader_cycle_distro;
   unsigned *num_warps_issuable;
   unsigned gpgpu_n_stall_shd_mem;
   unsigned *single_issue_nums;
@@ -1908,10 +1908,10 @@ class shader_core_stats : public shader_core_stats_pod {
     m_non_rf_operands =
         (unsigned *)calloc(config->num_shader(), sizeof(unsigned));
     m_n_diverge = (unsigned *)calloc(config->num_shader(), sizeof(unsigned));
-    shader_cycle_distro =
-        (unsigned *)calloc(config->warp_size + 3, sizeof(unsigned));
-    last_shader_cycle_distro =
-        (unsigned *)calloc(m_config->warp_size + 3, sizeof(unsigned));
+    shader_cycle_distro = (unsigned long long *)calloc(
+        config->warp_size + 3, sizeof(unsigned long long));
+    last_shader_cycle_distro = (unsigned long long *)calloc(
+        m_config->warp_size + 3, sizeof(unsigned long long));
     single_issue_nums =
         (unsigned *)calloc(config->gpgpu_num_sched_per_core, sizeof(unsigned));
     dual_issue_nums =

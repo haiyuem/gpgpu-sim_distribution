@@ -847,6 +847,12 @@ class cache_config {
   }
   write_policy_t get_write_policy() { return m_write_policy; }
 
+  // Ways in which misses/fills may allocate (bit i = way i). Only L2 applies
+  // this in tag_array::probe(); L1/others ignore the mask for victim/alloc.
+  unsigned full_assoc_way_mask() const;
+  virtual unsigned valid_alloc_way_mask() const;
+  virtual bool apply_cat_alloc_way_mask_in_probe() const { return false; }
+
  protected:
   void exit_parse_error() {
     printf("GPGPU-Sim uArch: cache configuration parsing error (%s)\n",
@@ -935,9 +941,16 @@ class l1d_cache_config : public cache_config {
 
 class l2_cache_config : public cache_config {
  public:
-  l2_cache_config() : cache_config() {}
+  l2_cache_config() : cache_config(), m_l2_valid_way_mask(0) {}
   void init(linear_to_raw_address_translation *address_mapping);
   virtual unsigned set_index(new_addr_type addr) const;
+  unsigned valid_alloc_way_mask() const override;
+  bool apply_cat_alloc_way_mask_in_probe() const override { return true; }
+
+  // Number of low-order ways enabled for CAT-style allocation/victim selection
+  // (hits still see all ways). 0 means "all ways". E.g., assoc=16:
+  // value=16 -> 0xFFFF, value=14 -> 0x3FFF.
+  unsigned m_l2_valid_way_mask;
 
  private:
   linear_to_raw_address_translation *m_address_mapping;

@@ -455,6 +455,12 @@ memory_sub_partition::memory_sub_partition(unsigned sub_partition_id,
   wb_addr = -1;
 }
 
+void memory_sub_partition::reset_L2_to_icnt_rate_limiter_state() {
+  m_L2_to_icnt_credit = 0;
+  m_L2_to_icnt_last_update =
+      m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
+}
+
 memory_sub_partition::~memory_sub_partition() {
   delete m_icnt_L2_queue;
   delete m_L2_dram_queue;

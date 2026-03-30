@@ -153,9 +153,30 @@ unsigned cache_config::hash_function(new_addr_type addr, unsigned m_nset,
   return set_index;
 }
 
+unsigned cache_config::full_assoc_way_mask() const {
+  if (!m_valid || m_disabled || m_assoc == 0) return 0;
+  // Per-way masks use uint32 in probe(); assoc>32 caches skip bit tests there.
+  if (m_assoc >= 32) return ~0u;
+  return (1u << m_assoc) - 1u;
+}
+
+unsigned cache_config::valid_alloc_way_mask() const {
+  return full_assoc_way_mask();
+}
+
 void l2_cache_config::init(linear_to_raw_address_translation *address_mapping) {
   cache_config::init(m_config_string, FuncCachePreferNone);
   m_address_mapping = address_mapping;
+  // m_l2_valid_way_mask now stores number-of-ways (0 = all ways). The actual
+  // bitmask is derived in valid_alloc_way_mask() using current associativity.
+}
+
+unsigned l2_cache_config::valid_alloc_way_mask() const {
+  unsigned all = full_assoc_way_mask();
+  if (m_l2_valid_way_mask == 0) return all;
+  unsigned nways = m_l2_valid_way_mask;
+  if (nways >= m_assoc) return all;
+  return (1u << nways) - 1u;
 }
 
 unsigned l2_cache_config::set_index(new_addr_type addr) const {
@@ -250,6 +271,9 @@ enum cache_request_status tag_array::probe(new_addr_type addr, unsigned &idx,
   // assert( m_config.m_write_policy == READ_ONLY );
   unsigned set_index = m_config.set_index(addr);
   new_addr_type tag = m_config.tag(addr);
+  const bool use_cat_way_mask = m_config.apply_cat_alloc_way_mask_in_probe();
+  const unsigned alloc_way_mask =
+      use_cat_way_mask ? m_config.valid_alloc_way_mask() : ~0u;
 
   unsigned invalid_line = (unsigned)-1;
   unsigned valid_line = (unsigned)-1;
@@ -283,6 +307,12 @@ enum cache_request_status tag_array::probe(new_addr_type addr, unsigned &idx,
         assert(line->get_status(mask) == INVALID);
       }
     }
+    // L2 CAT-style way mask only (see l2_cache_config): hits use all ways;
+    // installs/victims only in ways with bit set in alloc_way_mask.
+    // assoc<=32: mask fits in unsigned; >> way must stay defined.
+    if (use_cat_way_mask && m_config.m_assoc <= 32 &&
+        ((alloc_way_mask >> way) & 1u) == 0)
+      continue;
     if (!line->is_reserved_line()) {
       // percentage of dirty lines in the cache
       // number of dirty lines / total lines in the cache
