@@ -333,6 +333,9 @@ void memory_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-SST_mode", OPT_BOOL, &SST_mode, "SST mode",
                          "0");
   m_address_mapping.addrdec_setoption(opp);
+  // Lauren - added cut factor option to memory config
+  option_parser_register(opp, "-gpgpu_shmem_cut_factor", OPT_UINT32, &cut_factor,
+                         "cut factor for number of shared memory banks", "1");
 }
 
 void shader_core_config::reg_options(class OptionParser *opp) {
@@ -2209,8 +2212,9 @@ void gpgpu_sim::cycle() {
            total_cycles >= m_config.config_reload_at_cycle) ||
           (m_config.config_reload_at_insn != 0 &&
            total_insn >= m_config.config_reload_at_insn);
-      if (trigger) {
-        reload_config_file();
+      if (trigger) { // Lauren - change param here
+          m_config.m_memory_config.activated_cut_factor = m_config.m_memory_config.cut_factor; // Lauren - where to get this from?
+        // reload_config_file();
         config_reload_applied = true;
         printf("GPGPU-Sim: at cycle %llu, insn %llu: applying -reload_config overrides\n",
                (unsigned long long)total_cycles, (unsigned long long)total_insn);
@@ -2420,6 +2424,7 @@ const shader_core_config *gpgpu_sim::getShaderCoreConfig() {
 
 const memory_config *gpgpu_sim::getMemoryConfig() { return m_memory_config; }
 
+// Lauren
 void gpgpu_sim::reload_config_file() {
   gpgpu_sim_config *cfg = gpgpu_ctx->the_gpgpusim->g_the_gpu_config;
   option_parser_t opp = gpgpu_ctx->the_gpgpusim->g_option_parser;
@@ -2530,7 +2535,9 @@ void sst_gpgpu_sim::SST_cycle() {
         (m_config.config_reload_at_insn != 0 &&
          total_insn >= m_config.config_reload_at_insn);
     if (trigger) {
-      reload_config_file();
+      // Lauren - instead of reloacing file, immediately change cut factor wire
+      m_config.m_memory_config.activated_cut_factor = m_config.m_memory_config.cut_factor; // Lauren - where to get this from?
+      // reload_config_file();
       config_reload_applied = true;
       printf("GPGPU-Sim: at cycle %llu, insn %llu: config file re-read\n",
              (unsigned long long)total_cycles, (unsigned long long)total_insn);

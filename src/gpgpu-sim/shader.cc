@@ -1031,7 +1031,9 @@ void shader_core_ctx::fetch() {
 void exec_shader_core_ctx::func_exec_inst(warp_inst_t &inst) {
   execute_warp_inst_t(inst);
   if (inst.is_load() || inst.is_store()) {
-    inst.generate_mem_accesses();
+    inst.generate_mem_accesses(m_gpu->getMemoryConfig()->activated_cut_factor);
+    // inst.generate_mem_accesses(m_gpu->get_config().get_mem_config().activated_cut_factor);
+    // inst.generate_mem_accesses(m_gpu->get_config().m_memory_config->activated_cut_factor); // Lauren - added cut factor to generate accesses
     // inst.print_m_accessq();
   }
 }

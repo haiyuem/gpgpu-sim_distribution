@@ -219,6 +219,8 @@ class memory_config {
     gpgpu_dram_timing_opt = NULL;
     gpgpu_L2_queue_config = NULL;
     gpgpu_ctx = ctx;
+    cut_factor = 1; // Lauren - added cut_factor to memory_config --> this is what the config file specifies
+    activated_cut_factor = 1; // Lauren - added this, this doesn't get updated to cut_factor until triggered is true
   }
   void init() {
     assert(gpgpu_dram_timing_opt);
@@ -347,6 +349,9 @@ class memory_config {
   // L2-to-ICNT rate limiter: add 1 credit every gpgpu_l2_to_icnt_response_period cycles.
   // 0 disables the limiter (unlimited credits).
   unsigned gpgpu_l2_to_icnt_response_period;
+
+  unsigned cut_factor; // Lauren - controls number of shared memory banks in memory config
+  mutable unsigned activated_cut_factor; // Lauren - this is the cut factor that is currently being used
 
   // DRAM parameters
 

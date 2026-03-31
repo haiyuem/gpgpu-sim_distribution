@@ -283,7 +283,7 @@ void warp_inst_t::broadcast_barrier_reduction(
   }
 }
 
-void warp_inst_t::generate_mem_accesses() {
+void warp_inst_t::generate_mem_accesses(unsigned cut_factor) { // Lauren - added cut_factor
   if (empty() || op == MEMORY_BARRIER_OP || m_mem_accesses_created) return;
   if (!((op == LOAD_OP) || (op == TENSOR_CORE_LOAD_OP) || (op == STORE_OP) ||
         (op == TENSOR_CORE_STORE_OP)))
@@ -346,13 +346,15 @@ void warp_inst_t::generate_mem_accesses() {
           // FIXME: deferred allocation of shared memory should not accumulate
           // across kernel launches assert( addr < m_config->gpgpu_shmem_size );
           unsigned bank = m_config->shmem_bank_func(addr);
-          // unsigned virtual_bank = bank / ??;
+          unsigned virtual_bank = bank / cut_factor; // Lauren
           new_addr_type word =
               line_size_based_tag_func(addr, m_config->WORD_SIZE);
-          bank_accs[bank][word]++;
+          
+          // Lauren - update the virtual banks, clear out the not used ones 
+          bank_accs[virtual_bank][word]++; // Lauren - changed
         }
 
-        if (m_config->shmem_limited_broadcast) {
+        if (m_config->shmem_limited_broadcast) { // Lauren - this isn't actually running right now because in the config it's 0
           // step 2: look for and select a broadcast bank/word if one occurs
           bool broadcast_detected = false;
           new_addr_type broadcast_word = (new_addr_type)-1;

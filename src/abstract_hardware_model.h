@@ -1153,7 +1153,7 @@ class warp_inst_t : public inst_t {
     }
   };
 
-  void generate_mem_accesses();
+  void generate_mem_accesses(unsigned cut_factor);
   void memory_coalescing_arch(bool is_write, mem_access_type access_type);
   void memory_coalescing_arch_atomic(bool is_write,
                                      mem_access_type access_type);
